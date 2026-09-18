@@ -1,0 +1,210 @@
+Parameters:
+  Cidr:
+    Type: String
+    Default: 10.6.0.0/16
+  SubnetCidrPrefix:
+    Type: String
+    Default: 10.6
+  EnvironmentNameLower:
+    Type: String
+    AllowedValues:
+      - dev
+      - stage
+      - qa
+      - prod
+    Default: prod
+  
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref Cidr
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+
+
+
+  PrivateSubnet0:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Sub ${AWS::Region}a
+      CidrBlock: !Sub ${SubnetCidrPrefix}.0.0/24
+      MapPublicIpOnLaunch: False
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentNameLower}-private-a
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Sub ${AWS::Region}b
+      CidrBlock: !Sub ${SubnetCidrPrefix}.1.0/24
+      MapPublicIpOnLaunch: False
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentNameLower}-private-b
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Sub ${AWS::Region}c
+      CidrBlock: !Sub ${SubnetCidrPrefix}.2.0/24
+      MapPublicIpOnLaunch: False
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentNameLower}-private-c
+
+  PublicSubnet0:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Sub ${AWS::Region}a
+      CidrBlock: !Sub ${SubnetCidrPrefix}.3.0/24
+      MapPublicIpOnLaunch: True
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentNameLower}-public-a
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Sub ${AWS::Region}b
+      CidrBlock: !Sub ${SubnetCidrPrefix}.4.0/24
+      MapPublicIpOnLaunch: True
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentNameLower}-public-b
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      AvailabilityZone: !Sub ${AWS::Region}c
+      CidrBlock: !Sub ${SubnetCidrPrefix}.5.0/24
+      MapPublicIpOnLaunch: True
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentNameLower}-public-c
+
+  Igw:
+    Type: AWS::EC2::InternetGateway
+  GwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Igw
+
+
+  NatEIP0:
+   Type: AWS::EC2::EIP
+   Properties:
+      Domain: vpc
+  # NatEIP1:
+  #  Type: AWS::EC2::EIP
+  #  Properties:
+  #     Domain: vpc
+  # NatEIP2:
+  #  Type: AWS::EC2::EIP
+  #  Properties:
+  #     Domain: vpc
+  NatGateway0:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      SubnetId: !Ref PublicSubnet0
+      AllocationId: !GetAtt NatEIP0.AllocationId
+      Tags: 
+      - Key: Name
+        Value: !Sub ${EnvironmentNameLower}-nat-a
+  # NatGateway1:
+  #   Type: AWS::EC2::NatGateway
+  #   Properties: 
+  #     SubnetId: !Ref PublicSubnet1
+  #   AllocationId: !GetAtt NatEIP1.AllocationId
+  #     Tags: 
+  #     - Key: Name
+  #       Value: !Sub ${EnvironmentNameLower}-nat-b
+  # NatGateway2:
+  #   Type: AWS::EC2::NatGateway
+  #   Properties: 
+  #     SubnetId: !Ref PublicSubnet2
+  #   AllocationId: !GetAtt NatEIP2.AllocationId
+  #     Tags: 
+  #     - Key: Name
+  #       Value: !Sub ${EnvironmentNameLower}-nat-c
+
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref Vpc
+  PublicRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref Igw
+  PublicRouteAssoc0:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet0
+  PublicRouteAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+  PublicRouteAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+
+  PrivateRouteTable0:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref Vpc
+  PrivateRoute0:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PrivateRouteTable0
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId: !Ref NatGateway0
+  # PrivateRouteTable1:
+  #   Type: AWS::EC2::RouteTable
+  #   Properties: 
+  #     VpcId: !Ref Vpc
+  # PrivateRoute1:
+  #     Type: AWS::EC2::Route
+  #     Properties:
+  #       RouteTableId: !Ref PrivateRouteTable1
+  #       DestinationCidrBlock: 0.0.0.0/0
+  #       NatGatewayId: !Ref NatGateway1
+  # PrivateRouteTable2:
+  #   Type: AWS::EC2::RouteTable
+  #   Properties: 
+  #     VpcId: !Ref Vpc
+  # PrivateRoute2:
+  #     Type: AWS::EC2::Route
+  #     Properties:
+  #       RouteTableId: !Ref PrivateRouteTable2
+  #       DestinationCidrBlock: 0.0.0.0/0
+  #       NatGatewayId: !Ref NatGateway2
+
+  PrivateRouteAssoc0:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      RouteTableId: !Ref PrivateRouteTable0
+      SubnetId: !Ref PrivateSubnet0
+  PrivateRouteAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      # RouteTableId: !Ref PrivateRouteTable1
+      RouteTableId: !Ref PrivateRouteTable0
+      SubnetId: !Ref PrivateSubnet1
+  PrivateRouteAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      # RouteTableId: !Ref PrivateRouteTable2
+      RouteTableId: !Ref PrivateRouteTable0
+      SubnetId: !Ref PrivateSubnet2

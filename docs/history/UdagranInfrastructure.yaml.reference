@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Two-AZ network for the Udagram Apache infrastructure demonstration
+Description: Creating an Instagram clone called Udagram
 
 Parameters:
   EnvironmentName:
@@ -20,11 +20,11 @@ Parameters:
     Type: String
 
   PrivSub1CIDR:
-    Description: Please enter the IP range (CIDR notation) for this private subnet
+    Description: Please enter the IP range (CIDR notation) for this - Public Subnet
     Type: String
 
   PrivSub2CIDR:
-    Description: Please enter the IP range (CIDR notation) for this private subnet
+    Description: Please enter the IP range (CIDR notation) for this - Public Subnet
     Type: String 
 
  
@@ -42,8 +42,14 @@ Resources:
             Action:
               - 'sts:AssumeRole'
       Path: /
-      ManagedPolicyArns:
-        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource: '*'
   UdagramIAMInstanceProfile:
     Type: 'AWS::IAM::InstanceProfile'
     Properties:
@@ -228,7 +234,7 @@ Resources:
       SubnetId: !Ref PublicSubnet2
 Outputs:
   UdaBucketIAMRole:
-    Description: "Instance profile for Systems Manager access; no application AWS API permissions"
+    Description: "Allow EC2 instances to manage Web App S3"
     Value: !Ref UdagramIAMInstanceProfile
     Export:
       Name: !Sub ${EnvironmentName}-IAM-NAME

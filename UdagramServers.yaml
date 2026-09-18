@@ -1,119 +1,99 @@
-AWSTemplateFormatVersion: 2010-09-09
-
-Description: Creating an Instagram clone called Udagram
-
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Fixed-capacity, two-AZ Apache demonstration behind an HTTP load balancer
 Parameters:
   EnvironmentName:
-    Description: To be used to prefix resource names.
     Type: String
-
+    Description: Must match the deployed network stack's export prefix
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small, t3.medium]
 Resources:
   LBSecGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow http traffic to our load balancer
+      GroupDescription: Public HTTP demo endpoint
       VpcId:
-        Fn::ImportValue:
-          !Sub "${EnvironmentName}-VPCID"
+        Fn::ImportValue: !Sub '${EnvironmentName}-VPCID'
       SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: 80
-        ToPort: 80
-        CidrIp: 0.0.0.0/0
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
       SecurityGroupEgress:
-      - IpProtocol: tcp
-        FromPort: 80
-        ToPort: 80
-        CidrIp: 0.0.0.0/0
-
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
   WebServerSecGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow http to our hosts and SSH from local only
+      GroupDescription: HTTP from the ALB only; HTTPS egress for package updates and SSM
       VpcId:
-        Fn::ImportValue:
-          !Sub "${EnvironmentName}-VPCID"
+        Fn::ImportValue: !Sub '${EnvironmentName}-VPCID'
       SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: 80
-        ToPort: 80
-        CidrIp: 0.0.0.0/0
-      - IpProtocol: tcp
-        FromPort: 22
-        ToPort: 22
-        CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LBSecGroup
       SecurityGroupEgress:
-      - IpProtocol: tcp
-        FromPort: 0
-        ToPort: 65535
-        CidrIp: 0.0.0.0/0
-
-  WebAppLaunchConfig:
-    Type: AWS::AutoScaling::LaunchConfiguration
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+  WebAppLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
     Properties:
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          apt-get update -y
-          apt-get install apache2 -y
-          systemctl start apache2.service
-          cd /var/www/html
-          echo "it works! Udagram, Udacity" > index.html
-      ImageId: ami-0cfa91bdbc3be780c
-      IamInstanceProfile:
-        Fn::ImportValue: !Sub "${EnvironmentName}-IAM-NAME"
-      SecurityGroups:
-      - Ref: WebServerSecGroup
-      InstanceType: t3.medium
-      BlockDeviceMappings:
-      - DeviceName: "/dev/sdk"
-        Ebs:
-          VolumeSize: '10'
-          DeleteOnTermination: true
-
+      LaunchTemplateData:
+        ImageId: !Ref ImageId
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Name:
+            Fn::ImportValue: !Sub '${EnvironmentName}-IAM-NAME'
+        SecurityGroupIds: [!Ref WebServerSecGroup]
+        MetadataOptions: {HttpTokens: required, HttpEndpoint: enabled}
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs: {VolumeSize: 8, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -euo pipefail
+            dnf install -y httpd
+            printf '%s\n' '<h1>Udagram infrastructure demo</h1><p>Apache on a private EC2 instance.</p>' > /var/www/html/index.html
+            systemctl enable --now httpd
   WebAppGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 3
+        MaxBatchSize: 1
+        PauseTime: PT5M
     Properties:
       VPCZoneIdentifier:
-      - Fn::ImportValue: 
-          !Sub "${EnvironmentName}-PRIV-NETS"
-      LaunchConfigurationName:
-        Ref: WebAppLaunchConfig
+        Fn::Split:
+          - ','
+          - Fn::ImportValue: !Sub '${EnvironmentName}-PRIV-NETS'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WebAppLaunchTemplate
+        Version: !GetAtt WebAppLaunchTemplate.LatestVersionNumber
       MinSize: '4'
       MaxSize: '4'
-      DesiredCapacity: "4"
-      TargetGroupARNs:
-      - Ref: WebAppTargetGroup
+      DesiredCapacity: '4'
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      TargetGroupARNs: [!Ref WebAppTargetGroup]
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-apache', PropagateAtLaunch: true}
   WebAppLB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
+      Scheme: internet-facing
       Subnets:
-      - Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
-      - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
-      SecurityGroups:
-      - Ref: LBSecGroup
+        - Fn::ImportValue: !Sub '${EnvironmentName}-PUB1-SN'
+        - Fn::ImportValue: !Sub '${EnvironmentName}-PUB2-SN'
+      SecurityGroups: [!Ref LBSecGroup]
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-      DefaultActions:
-      - Type: forward
-        TargetGroupArn:
-          Ref: WebAppTargetGroup
-      LoadBalancerArn:
-        Ref: WebAppLB
-      Port: '80'
+      DefaultActions: [{Type: forward, TargetGroupArn: !Ref WebAppTargetGroup}]
+      LoadBalancerArn: !Ref WebAppLB
+      Port: 80
       Protocol: HTTP
-  ALBListenerRule:
-      Type: AWS::ElasticLoadBalancingV2::ListenerRule
-      Properties:
-        Actions:
-        - Type: forward
-          TargetGroupArn: !Ref 'WebAppTargetGroup'
-        Conditions:
-        - Field: path-pattern
-          Values: [/]
-        ListenerArn: !Ref 'Listener'
-        Priority: 1
   WebAppTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -122,16 +102,15 @@ Resources:
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 8
       HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
       Port: 80
       Protocol: HTTP
-      UnhealthyThresholdCount: 5
-      VpcId: 
-        Fn::ImportValue:
-          Fn::Sub: "${EnvironmentName}-VPCID"
-
+      VpcId:
+        Fn::ImportValue: !Sub '${EnvironmentName}-VPCID'
 Outputs:
   Website:
-    Value: !Sub http://${WebAppLB.DNSName}
-    Description: Public DNS of LoadBalancer
-    Export:
-      Name: !Sub ${EnvironmentName}-Public-DNS-URL
+    Value: !Sub 'http://${WebAppLB.DNSName}'
+  TargetGroupArn:
+    Value: !Ref WebAppTargetGroup
+  AutoScalingGroup:
+    Value: !Ref WebAppGroup

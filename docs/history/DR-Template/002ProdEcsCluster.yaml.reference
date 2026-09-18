@@ -1,0 +1,38 @@
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Stage
+      - Prod
+  ServiceNameDashy:
+    Type: String
+    Default: dell-cluster-dr
+Mappings:
+  Settings:
+    EnvironmentNameLower:
+      Dev: dev
+      Stage: stage
+      Prod: prod
+    CapacityProvider:
+      Dev: FARGATE_SPOT
+      Stage: FARGATE_SPOT
+      Prod: FARGATE
+Resources:
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties: 
+      ClusterName: !Join ['', [!FindInMap [Settings, EnvironmentNameLower, !Ref EnvironmentName], '-', !Ref ServiceNameDashy]]
+      CapacityProviders: 
+        - !FindInMap [Settings, CapacityProvider, !Ref EnvironmentName]
+      DefaultCapacityProviderStrategy:
+        - Base: 0
+          Weight: 1000
+          CapacityProvider: !FindInMap [Settings, CapacityProvider, !Ref EnvironmentName]
+
+Outputs:
+  EcsCluster:
+    Value: !Ref EcsCluster
+    Export:
+      Name: !Sub "${AWS::StackName}-EcsCluster"

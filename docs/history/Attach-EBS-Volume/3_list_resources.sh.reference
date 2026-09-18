@@ -1,0 +1,6 @@
+echo "Resources created for this lab are: "
+echo "      VPC:                $VPC_ID"
+echo "      KEY:                $KEY_NAME"
+echo "      Subnet:             $SUBNET_ID"
+echo "      Key:                $KEY_NAME"
+echo "      Security Group:     $SECURITY_GROUP"
